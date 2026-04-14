@@ -19,6 +19,7 @@ import {
   line3Series,
   line6Series,
   pieSeries,
+  sequentialBarData,
   stackedBarSeries,
   timeAxis,
 } from "./data/mockChartData";
@@ -210,6 +211,142 @@ export default function MockDataPage() {
     ],
   };
 
+  // ── Sequential scale derived from palette[0] ────────────────────────────
+  // Mirrors the logic in ColorWidget so both stay in sync with edits.
+  // Produces 5 steps: lightest (step 0) → base (step 2) → darkest (step 4).
+
+  const hexToHsl = (hex: string): [number, number, number] => {
+    const c = hex.replace("#", "");
+    const r = parseInt(c.slice(0, 2), 16) / 255;
+    const g = parseInt(c.slice(2, 4), 16) / 255;
+    const b = parseInt(c.slice(4, 6), 16) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    let h = 0; let s = 0;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+        case g: h = ((b - r) / d + 2) / 6; break;
+        case b: h = ((r - g) / d + 4) / 6; break;
+      }
+    }
+    return [h * 360, s * 100, l * 100];
+  };
+
+  const hslToHex = (h: number, s: number, l: number): string => {
+    const hNorm = h / 360; const sNorm = s / 100; const lNorm = l / 100;
+    const hue2rgb = (p: number, q: number, t: number) => {
+      const tn = ((t % 1) + 1) % 1;
+      if (tn < 1/6) return p + (q - p) * 6 * tn;
+      if (tn < 1/2) return q;
+      if (tn < 2/3) return p + (q - p) * (2/3 - tn) * 6;
+      return p;
+    };
+    let r: number; let g: number; let b: number;
+    if (sNorm === 0) { r = g = b = lNorm; } else {
+      const q = lNorm < 0.5 ? lNorm * (1 + sNorm) : lNorm + sNorm - lNorm * sNorm;
+      const p = 2 * lNorm - q;
+      r = hue2rgb(p, q, hNorm + 1/3);
+      g = hue2rgb(p, q, hNorm);
+      b = hue2rgb(p, q, hNorm - 1/3);
+    }
+    const ch = (v: number) => Math.round(v * 255).toString(16).padStart(2, "0");
+    return `#${ch(r)}${ch(g)}${ch(b)}`.toUpperCase();
+  };
+
+  const buildSequentialScale = (baseHex: string, dark: boolean): string[] => {
+    const [h, s, l] = hexToHsl(baseHex);
+    const lightAnchor = 92; const darkAnchor = 16;
+    const lightSat = Math.min(s, 45);
+    const darkSat  = Math.min(s * 1.1, 100);
+    if (dark) {
+      return [
+        hslToHex(h, darkSat,  darkAnchor),
+        hslToHex(h, s,        Math.round((darkAnchor + l) / 2)),
+        baseHex.toUpperCase(),
+        hslToHex(h, lightSat, Math.round((l + lightAnchor) / 2)),
+        hslToHex(h, lightSat, lightAnchor),
+      ];
+    }
+    return [
+      hslToHex(h, lightSat, lightAnchor),
+      hslToHex(h, s,        Math.round((lightAnchor + l) / 2)),
+      baseHex.toUpperCase(),
+      hslToHex(h, s,        Math.round((l + darkAnchor) / 2)),
+      hslToHex(h, darkSat,  darkAnchor),
+    ];
+  };
+
+  const sequentialScale = buildSequentialScale(palette[0], isDarkMode);
+
+  // Map each data point to a step in the scale based on its rank.
+  // The highest value gets the darkest step (step 4 in light mode).
+  const maxVal = Math.max(...sequentialBarData.map((d) => d.value));
+  const sequentialBarColors = sequentialBarData.map((d) => {
+    const ratio = d.value / maxVal; // 0 → 1
+    // Map ratio to one of the 5 scale steps, darkest for highest
+    const stepIndex = isDarkMode
+      ? Math.round((1 - ratio) * 4)   // dark: step 0 = darkest
+      : Math.round(ratio * 4);         // light: step 4 = darkest
+    return sequentialScale[stepIndex];
+  });
+
+  const sequentialOptions: EChartsOption = {
+    backgroundColor: "transparent",
+    grid: { left: 130, right: 40, top: 8, bottom: 8, containLabel: false },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "none" },
+      formatter: (params: unknown) => {
+        const p = Array.isArray(params) ? params[0] : params;
+        if (!p || typeof p !== "object") {
+          return "";
+        }
+
+        const { name, value } = p as { name?: unknown; value?: unknown };
+        const nameText = typeof name === "string" ? name : "Unknown";
+        const valueText = typeof value === "number" ? value.toLocaleString() : String(value ?? "");
+
+        return `${nameText}: ${valueText} req/s`;
+      },
+    },
+    xAxis: {
+      type: "value",
+      axisLine: { show: false },
+      axisTick: { show: false },
+      splitLine: { show: true, lineStyle: { type: "dashed", opacity: 0.4 } },
+      axisLabel: {
+        color: isDarkMode ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.4)",
+        fontSize: 11,
+      },
+    },
+    yAxis: {
+      type: "category",
+      data: sequentialBarData.map((d) => d.name),
+      inverse: true,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: {
+        color: isDarkMode ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.65)",
+        fontSize: 12,
+      },
+    },
+    series: [
+      {
+        type: "bar",
+        data: sequentialBarData.map((d, i) => ({
+          value: d.value,
+          itemStyle: { color: sequentialBarColors[i] },
+        })),
+        barWidth: 18,
+        emphasis: { disabled: true },
+      },
+    ],
+  };
+
   useEffect(() => {
     document.documentElement.setAttribute("data-mode", mode);
   }, [mode]);
@@ -254,6 +391,20 @@ export default function MockDataPage() {
             </LayerCard.Secondary>
             <LayerCard.Primary>
               <Chart echarts={echarts} options={pieOptions} isDarkMode={isDarkMode} height={400} />
+            </LayerCard.Primary>
+          </LayerCard>
+
+          <LayerCard>
+            <LayerCard.Secondary>
+              <p>Sequential — requests by country</p>
+            </LayerCard.Secondary>
+            <LayerCard.Primary>
+              <Chart
+                echarts={echarts}
+                options={sequentialOptions}
+                isDarkMode={isDarkMode}
+                height={280}
+              />
             </LayerCard.Primary>
           </LayerCard>
 

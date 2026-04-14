@@ -153,3 +153,18 @@ export const pieSeries = [
   { value: 12, name: "LATAM" },
   { value: 10, name: "Other" },
 ];
+
+// Sequential chart data — request volume by country, sorted descending.
+// Values are the single metric; colour intensity encodes magnitude (dark = most).
+export const sequentialBarData = [
+  { name: "United States",   value: 4820 },
+  { name: "Germany",         value: 3610 },
+  { name: "United Kingdom",  value: 2940 },
+  { name: "France",          value: 2190 },
+  { name: "Japan",           value: 1850 },
+  { name: "India",           value: 1480 },
+  { name: "Brazil",          value: 1120 },
+  { name: "Canada",          value:  870 },
+  { name: "Australia",       value:  640 },
+  { name: "Netherlands",     value:  390 },
+];
