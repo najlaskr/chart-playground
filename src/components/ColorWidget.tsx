@@ -1,4 +1,5 @@
 import { ChartPalette, LayerCard, Table } from "@cloudflare/kumo";
+import { useState } from "react";
 
 // ─── Sequential scale derivation ─────────────────────────────────────────────
 // Takes the base colour (category[0]) and produces 5 steps:
@@ -65,6 +66,34 @@ function hslToHex(h: number, s: number, l: number): string {
   return `#${toHexChannel(r)}${toHexChannel(g)}${toHexChannel(b)}`.toUpperCase();
 }
 
+function hexToRgb(hex: string): [number, number, number] {
+  const c = hex.replace("#", "").trim();
+  return [
+    Number.parseInt(c.slice(0, 2), 16),
+    Number.parseInt(c.slice(2, 4), 16),
+    Number.parseInt(c.slice(4, 6), 16),
+  ];
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const toHexChannel = (v: number) =>
+    Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
+
+  return `#${toHexChannel(r)}${toHexChannel(g)}${toHexChannel(b)}`.toUpperCase();
+}
+
+function mixHex(fromHex: string, toHex: string, ratio: number): string {
+  const [r1, g1, b1] = hexToRgb(fromHex);
+  const [r2, g2, b2] = hexToRgb(toHex);
+  const t = Math.max(0, Math.min(1, ratio));
+
+  return rgbToHex(
+    r1 + (r2 - r1) * t,
+    g1 + (g2 - g1) * t,
+    b1 + (b2 - b1) * t,
+  );
+}
+
 // Produce 5 sequential steps from a base colour.
 // Steps are evenly distributed between a very light and a very dark anchor,
 // with the base colour locked at step index 2 (0-indexed, i.e. the middle).
@@ -76,7 +105,7 @@ function buildSequentialScale(baseHex: string, isDarkMode: boolean): string[] {
   // Step distribution: [90, 75, base_l, 35, 18] for light mode
   // The base L is locked; we interpolate symmetrically around it.
 
-  const lightAnchor = 92;   // step 1 in light mode
+  const lightAnchor = 88;   // step 1 in light mode
   const darkAnchor  = 16;   // step 5 in light mode
 
   // Saturation reduces at the light end to avoid washed-out pastels
@@ -104,6 +133,24 @@ function buildSequentialScale(baseHex: string, isDarkMode: boolean): string[] {
   ];
 }
 
+function buildDivergingScale(
+  lowHex: string,
+  highHex: string,
+  neutralHex: string,
+  isDarkMode: boolean,
+): string[] {
+  const lowRatio = isDarkMode ? 0.65 : 0.35;
+  const highRatio = isDarkMode ? 0.35 : 0.65;
+
+  return [
+    lowHex.toUpperCase(),
+    mixHex(lowHex, neutralHex, lowRatio),
+    neutralHex.toUpperCase(),
+    mixHex(neutralHex, highHex, highRatio),
+    highHex.toUpperCase(),
+  ];
+}
+
 const sequentialStepLabels = [
   "Step 1 — lightest",
   "Step 2",
@@ -112,13 +159,23 @@ const sequentialStepLabels = [
   "Step 5 — darkest",
 ];
 
+const divergingStepLabels = [
+  "Low extreme",
+  "Low",
+  "Neutral midpoint",
+  "High",
+  "High extreme",
+];
+
+// Neutral:     oklch(62.7% 0.194 149.214) → #00A63E
+// Info (blue):  #8EC5FF — reserved semantic info token, not for categorical use
 const semanticRows = [
-  { token: "Attention", meaning: "Danger / error / blocked" },
-  { token: "Warning", meaning: "Degraded / challenged / needs improvement" },
-  { token: "Neutral", meaning: "Info / allowed / normal baseline" },
-  { token: "NeutralLight", meaning: "Secondary / low-emphasis series" },
-  { token: "Disabled", meaning: "Inactive / no data" },
-  { token: "DisabledLight", meaning: "Skeleton / placeholder" },
+  { label: "Attention",     light: null,       dark: null,       meaning: "Danger / error / blocked" },
+  { label: "Warning",       light: null,       dark: null,       meaning: "Degraded / challenged / needs improvement" },
+  { label: "Neutral",       light: "#00A63E",  dark: "#00A63E",  meaning: "Success / allowed / normal baseline" },
+  { label: "Info",          light: "#8EC5FF",  dark: "#8EC5FF",  meaning: "Informational / secondary / low-emphasis" },
+  { label: "Disabled",      light: null,       dark: null,       meaning: "Inactive / no data" },
+  { label: "Disabled Light",light: null,       dark: null,       meaning: "Skeleton / placeholder" },
 ] as const;
 
 const categoricalRows = [
@@ -199,7 +256,9 @@ function contrastRatio(foreground: string, background: string) {
 
 type ColorWidgetProps = {
   categoricalColors: string[];
+  semanticColors: string[];
   onCategoricalColorChange: (rowIndex: number, nextColor: string) => void;
+  onSemanticColorChange: (rowIndex: number, nextColor: string) => void;
   isDarkMode: boolean;
 };
 
@@ -208,15 +267,53 @@ const DARK_BG  = "#101010";
 
 export function ColorWidget({
   categoricalColors,
+  semanticColors,
   onCategoricalColorChange,
+  onSemanticColorChange,
   isDarkMode,
 }: ColorWidgetProps) {
+  const [divergingOverridesByMode, setDivergingOverridesByMode] = useState<{
+    light: Partial<Record<"low" | "neutral" | "high", string>>;
+    dark: Partial<Record<"low" | "neutral" | "high", string>>;
+  }>({
+    light: {},
+    dark: {},
+  });
+
   const contrastBackground = isDarkMode ? DARK_BG : LIGHT_BG;
+  const modeKey = isDarkMode ? "dark" : "light";
 
   // Sequential scale derived from category[0] — the base anchor colour.
   // When the user edits category[0] the sequential scale updates in real time.
   const sequentialScale = buildSequentialScale(
-    categoricalColors[0] ?? (isDarkMode ? "#60A5FA" : "#2563EB"),
+    categoricalColors[0] ?? "#4290F0",
+    isDarkMode,
+  );
+
+  const defaultDivergingLow = categoricalColors[0] ?? "#4290F0";
+  const defaultDivergingNeutral = isDarkMode ? "#7A7A7A" : "#F3F4F6";
+  const defaultDivergingHigh = categoricalColors[2] ?? "#E05267";
+  const divergingLow = divergingOverridesByMode[modeKey].low ?? defaultDivergingLow;
+  const divergingNeutral = divergingOverridesByMode[modeKey].neutral ?? defaultDivergingNeutral;
+  const divergingHigh = divergingOverridesByMode[modeKey].high ?? defaultDivergingHigh;
+
+  const handleDivergingAnchorChange = (
+    anchor: "low" | "neutral" | "high",
+    nextColor: string,
+  ) => {
+    setDivergingOverridesByMode((previous) => ({
+      ...previous,
+      [modeKey]: {
+        ...previous[modeKey],
+        [anchor]: nextColor,
+      },
+    }));
+  };
+
+  const divergingScale = buildDivergingScale(
+    divergingLow,
+    divergingHigh,
+    divergingNeutral,
     isDarkMode,
   );
 
@@ -229,24 +326,37 @@ export function ColorWidget({
         <LayerCard.Primary className="!p-0 overflow-x-auto">
           <Table layout="auto">
             <Table.Body>
-              {semanticRows.map(({ token, meaning }) => {
-                const color = String(ChartPalette.semantic(token));
+              {semanticRows.map(({ label, light, dark, meaning }, rowIndex) => {
+                const explicit = isDarkMode ? dark : light;
+                const baseColor = explicit
+                  ? explicit
+                  : String(ChartPalette.semantic(
+                      label.replace(" ", "") as Parameters<typeof ChartPalette.semantic>[0],
+                      isDarkMode,
+                    ));
+                const color = semanticColors[rowIndex] ?? baseColor;
 
                 return (
-                  <Table.Row key={token}>
+                  <Table.Row key={label}>
                     <Table.Cell>
-                      <div className="flex items-center justify-center pl-1">
-                        <div
-                          className="h-4 w-4 rounded-lg ring ring-kumo-line"
-                          style={{ backgroundColor: color }}
+                      <p className="m-0 whitespace-nowrap pl-2 text-sm">{label}</p>
+                    </Table.Cell>
+                    <Table.Cell>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          aria-label={`${label} color`}
+                          value={color}
+                          onChange={(event) => {
+                            onSemanticColorChange(rowIndex, event.currentTarget.value);
+                          }}
+                          className="h-8 w-8 shrink-0 cursor-pointer appearance-none overflow-hidden rounded-lg border-0 bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-lg"
                         />
+                        <p className="m-0 w-[7ch] font-mono text-sm uppercase">{color.toUpperCase()}</p>
                       </div>
                     </Table.Cell>
                     <Table.Cell>
-                      <p className="m-0 whitespace-nowrap text-sm">{token}</p>
-                    </Table.Cell>
-                    <Table.Cell>
-                      <p className="m-0 text-sm">{meaning}</p>
+                      <p className="m-0 text-sm text-kumo-subtle">{meaning}</p>
                     </Table.Cell>
                   </Table.Row>
                 );
@@ -267,6 +377,7 @@ export function ColorWidget({
                 const color = categoricalColors[rowIndex] ?? String(ChartPalette.color(index));
                 const contrast = contrastRatio(color, contrastBackground);
                 const passes = contrast >= 3;
+                const [, , lightness] = hexToHsl(color);
 
                 return (
                   <Table.Row key={token}>
@@ -293,6 +404,11 @@ export function ColorWidget({
                       </div>
                     </Table.Cell>
                     <Table.Cell>
+                      <p className="m-0 w-[4ch] text-sm tabular-nums text-kumo-subtle px-2">
+                        {Math.round(lightness)}%
+                      </p>
+                    </Table.Cell>
+                    <Table.Cell>
                       <div className="flex items-center gap-2 whitespace-nowrap px-2">
                         <p className={`m-0 w-[5ch] text-sm tabular-nums ${passes ? "" : "text-red-600"}`}>
                           {contrast.toFixed(1)}:1
@@ -306,7 +422,7 @@ export function ColorWidget({
                 );
               })}
               <Table.Row>
-                <Table.Cell colSpan={3}>
+                <Table.Cell colSpan={4}>
                   <p className="m-0 text-sm">
                     Tested against {isDarkMode ? "#101010" : "#FFFFFF"}
                   </p>
@@ -350,6 +466,117 @@ export function ColorWidget({
                 <Table.Cell colSpan={3}>
                   <p className="m-0 text-sm text-kumo-subtle">
                     Derived from category 0 · tested against{" "}
+                    {isDarkMode ? DARK_BG : LIGHT_BG}
+                  </p>
+                </Table.Cell>
+              </Table.Row>
+            </Table.Body>
+          </Table>
+        </LayerCard.Primary>
+      </LayerCard>
+
+      <LayerCard className="w-fit max-w-full">
+        <LayerCard.Secondary>
+          <p className="m-0 text-sm">Diverging Scale</p>
+        </LayerCard.Secondary>
+        <LayerCard.Primary className="!p-0 overflow-x-auto">
+          <Table layout="auto">
+            <Table.Body>
+              <Table.Row>
+                <Table.Cell>
+                  <p className="m-0 whitespace-nowrap pl-2 text-sm">Low extreme</p>
+                </Table.Cell>
+                <Table.Cell>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      aria-label="Diverging low extreme color"
+                      value={divergingLow}
+                      onChange={(event) => {
+                        handleDivergingAnchorChange("low", event.currentTarget.value);
+                      }}
+                      className="h-8 w-8 shrink-0 cursor-pointer appearance-none overflow-hidden rounded-lg border-0 bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-lg"
+                    />
+                    <p className="m-0 w-[7ch] font-mono text-sm uppercase">{divergingLow.toUpperCase()}</p>
+                  </div>
+                </Table.Cell>
+                <Table.Cell>
+                  <p className="m-0 text-xs text-kumo-subtle whitespace-nowrap pr-2">Anchor</p>
+                </Table.Cell>
+              </Table.Row>
+
+              <Table.Row>
+                <Table.Cell>
+                  <p className="m-0 whitespace-nowrap pl-2 text-sm">Neutral midpoint</p>
+                </Table.Cell>
+                <Table.Cell>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      aria-label="Diverging neutral midpoint color"
+                      value={divergingNeutral}
+                      onChange={(event) => {
+                        handleDivergingAnchorChange("neutral", event.currentTarget.value);
+                      }}
+                      className="h-8 w-8 shrink-0 cursor-pointer appearance-none overflow-hidden rounded-lg border-0 bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-lg"
+                    />
+                    <p className="m-0 w-[7ch] font-mono text-sm uppercase">{divergingNeutral.toUpperCase()}</p>
+                  </div>
+                </Table.Cell>
+                <Table.Cell>
+                  <p className="m-0 text-xs text-kumo-subtle whitespace-nowrap pr-2">Anchor</p>
+                </Table.Cell>
+              </Table.Row>
+
+              <Table.Row>
+                <Table.Cell>
+                  <p className="m-0 whitespace-nowrap pl-2 text-sm">High extreme</p>
+                </Table.Cell>
+                <Table.Cell>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      aria-label="Diverging high extreme color"
+                      value={divergingHigh}
+                      onChange={(event) => {
+                        handleDivergingAnchorChange("high", event.currentTarget.value);
+                      }}
+                      className="h-8 w-8 shrink-0 cursor-pointer appearance-none overflow-hidden rounded-lg border-0 bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-lg"
+                    />
+                    <p className="m-0 w-[7ch] font-mono text-sm uppercase">{divergingHigh.toUpperCase()}</p>
+                  </div>
+                </Table.Cell>
+                <Table.Cell>
+                  <p className="m-0 text-xs text-kumo-subtle whitespace-nowrap pr-2">Anchor</p>
+                </Table.Cell>
+              </Table.Row>
+
+              {divergingScale.map((color, i) => (
+                <Table.Row key={i}>
+                  <Table.Cell>
+                    <div className="flex items-center justify-center pl-1">
+                      <div
+                        className="h-4 w-4 rounded-lg ring ring-kumo-line"
+                        style={{ backgroundColor: color }}
+                      />
+                    </div>
+                  </Table.Cell>
+                  <Table.Cell>
+                    <p className="m-0 font-mono text-sm uppercase whitespace-nowrap">
+                      {color}
+                    </p>
+                  </Table.Cell>
+                  <Table.Cell>
+                    <p className="m-0 text-xs text-kumo-subtle whitespace-nowrap pr-2">
+                      {divergingStepLabels[i]}
+                    </p>
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+              <Table.Row>
+                <Table.Cell colSpan={3}>
+                  <p className="m-0 text-sm text-kumo-subtle">
+                    Derived from category 0 ↔ category 2 with neutral midpoint · tested against{" "}
                     {isDarkMode ? DARK_BG : LIGHT_BG}
                   </p>
                 </Table.Cell>

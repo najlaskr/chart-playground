@@ -147,11 +147,12 @@ export const stackedBarSeries = [
 ];
 
 export const pieSeries = [
-  { value: 42, name: "US" },
-  { value: 21, name: "EU" },
-  { value: 15, name: "APAC" },
-  { value: 12, name: "LATAM" },
-  { value: 10, name: "Other" },
+  { value: 38, name: "US" },
+  { value: 19, name: "EU" },
+  { value: 14, name: "APAC" },
+  { value: 11, name: "LATAM" },
+  { value: 9,  name: "MEA" },
+  { value: 9,  name: "Other" },
 ];
 
 // Sequential chart data — request volume by country, sorted descending.

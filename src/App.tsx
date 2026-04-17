@@ -37,21 +37,48 @@ echarts.use([
 ]);
 
 const lightCategoricalDefaults = [
-  "#2563EB",
-  "#D97706",
-  "#E11D48",
-  "#4F46E5",
-  "#EA6D00",
-  "#0D9488",
+  "#4290F0",
+  "#D7AE3C",
+  "#E05267",
+  "#50C3B6",
+  "#8D58EE",
+  "#D37536",
 ];
 
 const darkCategoricalDefaults = [
-  "#60A5FA",
-  "#FBBF24",
-  "#FB7185",
-  "#818CF8",
-  "#FB923C",
-  "#2DD4BF",
+  "#4290F0",
+  "#D7AE3C",
+  "#E05267",
+  "#50C3B6",
+  "#8D58EE",
+  "#D37536",
+];
+
+const lightSemanticDefaults = [
+  String(ChartPalette.semantic("Attention", false)),
+  String(ChartPalette.semantic("Warning", false)),
+  "#00A63E",
+  "#8EC5FF",
+  String(ChartPalette.semantic("Disabled", false)),
+  String(ChartPalette.semantic("DisabledLight", false)),
+];
+
+const darkSemanticDefaults = [
+  String(ChartPalette.semantic("Attention", true)),
+  String(ChartPalette.semantic("Warning", true)),
+  "#00A63E",
+  "#8EC5FF",
+  String(ChartPalette.semantic("Disabled", true)),
+  String(ChartPalette.semantic("DisabledLight", true)),
+];
+
+const semanticSeriesStates = [
+  "Attention",
+  "Warning",
+  "Neutral",
+  "Info",
+  "Disabled",
+  "Disabled Light",
 ];
 
 export default function MockDataPage() {
@@ -61,28 +88,56 @@ export default function MockDataPage() {
     light: lightCategoricalDefaults,
     dark: darkCategoricalDefaults,
   }));
+  const [semanticColorsByMode, setSemanticColorsByMode] = useState(() => ({
+    light: lightSemanticDefaults,
+    dark: darkSemanticDefaults,
+  }));
   const palette = isDarkMode
     ? categoricalColorsByMode.dark
     : categoricalColorsByMode.light;
+  const semanticPalette = isDarkMode
+    ? semanticColorsByMode.dark
+    : semanticColorsByMode.light;
 
   const handleCategoricalColorChange = (rowIndex: number, nextColor: string) => {
     setCategoricalColorsByMode((previous) => {
-      const next = isDarkMode ? [...previous.dark] : [...previous.light];
-      next[rowIndex] = nextColor;
+      if (isDarkMode) {
+        const nextDark = [...previous.dark];
+        const nextLight = [...previous.light];
 
-      return isDarkMode
-        ? { ...previous, dark: next }
-        : { ...previous, light: next };
+        nextDark[rowIndex] = nextColor;
+        nextLight[rowIndex] = toLightModeCompanionColor(nextColor);
+
+        return { ...previous, dark: nextDark, light: nextLight };
+      }
+
+      const nextLight = [...previous.light];
+      nextLight[rowIndex] = nextColor;
+      return { ...previous, light: nextLight };
     });
   };
 
-  const line3SemanticColors = [
-    String(ChartPalette.semantic("Attention")),
-    String(ChartPalette.semantic("Warning")),
-    String(ChartPalette.semantic("Neutral")),
-  ];
+  const handleSemanticColorChange = (rowIndex: number, nextColor: string) => {
+    setSemanticColorsByMode((previous) => {
+      if (isDarkMode) {
+        const nextDark = [...previous.dark];
+        const nextLight = [...previous.light];
 
-  const cvdLabels = ["Blue", "Amber", "Rose", "Indigo", "Orange", "Teal"];
+        nextDark[rowIndex] = nextColor;
+        nextLight[rowIndex] = toLightModeCompanionColor(nextColor);
+
+        return { ...previous, dark: nextDark, light: nextLight };
+      }
+
+      const nextLight = [...previous.light];
+      nextLight[rowIndex] = nextColor;
+      return { ...previous, light: nextLight };
+    });
+  };
+
+  const line3CategoricalColors = palette.slice(0, 3);
+
+  const cvdLabels = ["0", "1", "2", "3", "4", "5"];
 
   const toRgb = (hex: string) => {
     const cleaned = hex.replace("#", "").trim();
@@ -117,7 +172,7 @@ export default function MockDataPage() {
 
 
   const lineOptions3Series: EChartsOption = {
-    color: line3SemanticColors,
+    color: line3CategoricalColors,
     backgroundColor: "transparent",
     grid: { left: 40, right: 20, top: 24, bottom: 36 },
     tooltip: { trigger: "axis" },
@@ -126,9 +181,9 @@ export default function MockDataPage() {
       boundaryGap: false,
       data: timeAxis,
     },
-    yAxis: { 
-      type: "value", 
-      splitLine: { show: true, lineStyle: { type: "dashed", opacity: 0.5 } } 
+    yAxis: {
+      type: "value",
+      splitLine: { show: true, lineStyle: { type: "dashed", opacity: 0.5 } },
     },
     series: line3Series.map((series) => ({
       ...series,
@@ -148,15 +203,38 @@ export default function MockDataPage() {
       boundaryGap: false,
       data: timeAxis,
     },
-    yAxis: { 
-      type: "value", 
+    yAxis: {
+      type: "value",
       splitLine: { show: true, lineStyle: { type: "dashed", opacity: 0.5 } },
     },
     series: line6Series.map((series) => ({
       ...series,
       type: "line",
       showSymbol: false,
-      lineStyle: { width: 1.25 },
+      lineStyle: { width: 1.5 },
+    })),
+  };
+
+  const lineOptions6SemanticSeries: EChartsOption = {
+    color: semanticPalette,
+    backgroundColor: "transparent",
+    grid: { left: 40, right: 20, top: 24, bottom: 36 },
+    tooltip: { trigger: "axis", appendToBody: true },
+    xAxis: {
+      type: "category",
+      boundaryGap: false,
+      data: timeAxis,
+    },
+    yAxis: {
+      type: "value",
+      splitLine: { show: true, lineStyle: { type: "dashed", opacity: 0.5 } },
+    },
+    series: line6Series.map((series, index) => ({
+      ...series,
+      name: semanticSeriesStates[index] ?? series.name,
+      type: "line",
+      showSymbol: false,
+      lineStyle: { width: 1.5 },
     })),
   };
 
@@ -257,9 +335,18 @@ export default function MockDataPage() {
     return `#${ch(r)}${ch(g)}${ch(b)}`.toUpperCase();
   };
 
+  const toLightModeCompanionColor = (hex: string): string => {
+    const [h, s, l] = hexToHsl(hex);
+    const darkerLightness = Math.max(16, Math.round(l - 18));
+    const adjustedSaturation = Math.min(100, Math.round(s * 1.05));
+    return hslToHex(h, adjustedSaturation, darkerLightness);
+  };
+
   const buildSequentialScale = (baseHex: string, dark: boolean): string[] => {
     const [h, s, l] = hexToHsl(baseHex);
-    const lightAnchor = 92; const darkAnchor = 16;
+    const lightAnchorLightMode = 88;
+    const lightAnchorDarkMode = 95;
+    const darkAnchor = 16;
     const lightSat = Math.min(s, 45);
     const darkSat  = Math.min(s * 1.1, 100);
     if (dark) {
@@ -267,13 +354,13 @@ export default function MockDataPage() {
         hslToHex(h, darkSat,  darkAnchor),
         hslToHex(h, s,        Math.round((darkAnchor + l) / 2)),
         baseHex.toUpperCase(),
-        hslToHex(h, lightSat, Math.round((l + lightAnchor) / 2)),
-        hslToHex(h, lightSat, lightAnchor),
+        hslToHex(h, lightSat, Math.round((l + lightAnchorDarkMode) / 2)),
+        hslToHex(h, lightSat, lightAnchorDarkMode),
       ];
     }
     return [
-      hslToHex(h, lightSat, lightAnchor),
-      hslToHex(h, s,        Math.round((lightAnchor + l) / 2)),
+      hslToHex(h, lightSat, lightAnchorLightMode),
+      hslToHex(h, s,        Math.round((lightAnchorLightMode + l) / 2)),
       baseHex.toUpperCase(),
       hslToHex(h, s,        Math.round((l + darkAnchor) / 2)),
       hslToHex(h, darkSat,  darkAnchor),
@@ -373,6 +460,20 @@ export default function MockDataPage() {
             </LayerCard.Secondary>
             <LayerCard.Primary>
               <Chart echarts={echarts} options={lineOptions6Series} isDarkMode={isDarkMode} height={280} />
+            </LayerCard.Primary>
+          </LayerCard>
+
+          <LayerCard>
+            <LayerCard.Secondary>
+              <p>Line chart — 6 series (semantic tokens)</p>
+            </LayerCard.Secondary>
+            <LayerCard.Primary>
+              <Chart
+                echarts={echarts}
+                options={lineOptions6SemanticSeries}
+                isDarkMode={isDarkMode}
+                height={280}
+              />
             </LayerCard.Primary>
           </LayerCard>
 
@@ -517,7 +618,9 @@ export default function MockDataPage() {
 
             <ColorWidget
               categoricalColors={palette}
+              semanticColors={semanticPalette}
               onCategoricalColorChange={handleCategoricalColorChange}
+              onSemanticColorChange={handleSemanticColorChange}
               isDarkMode={isDarkMode}
             />
           </div>
